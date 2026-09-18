@@ -10,15 +10,21 @@
 
 ## 一句话主线
 
-模型参数固定后，还可以把计算投入 **test-time／inference-time**：多生成候选、顺序修订、搜索，再验证或融合结果。但「生成过正确答案」与「最终交付正确答案」是两件事；讲座依次讨论 **coverage 的扩展规律**、**generation–verification gap**、**按题目难度分配预算**，以及用 **Archon** 搜索多模型、多步骤的推理架构。
+**这讲最反直觉的结果**：单次表现明显较弱的小型开放模型，可以靠大量生成、搜索和验证，在多个 benchmark 上超过当时更强模型的**单次尝试**。这里的 **scaling** 很直观：模型不变，把每题的尝试次数 `k` 从 1 增大，至少找到一个正确答案的机会（coverage）通常随之提高。随后才是更难的系统问题：能否从候选中认出它、花多少计算最合算？讲座还比较了把计算花在 **training time**（训练更强的 base model）与 **test time**（让现有模型多尝试）上的收益：两者在一些题目上可以替代，但最难的题往往更需要提升 base model。[02:01](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=121s) [38:02](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=2282s)
 
 ## 1. Repeated sampling：先理解 coverage [01:24](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=84s)
 
 最简单的 test-time scaling 是让同一模型对同一道题独立生成 `k` 个 candidate，再尝试选出正确的一个。模型权重没有改变；额外成本发生在每次推理。讲座用 *Large Language Monkeys* 的数学、编程和 SWE-bench 例子说明：即使模型单次成功率较低，增加采样也可能让正确答案出现在候选集中。[03:13](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=193s)
 
-```text
-题目 → 生成 k 个 candidate → 验证／选择 → 交付一个答案
-          ↑ coverage 在此衡量「至少出现一个正确 candidate」
+**小模型超过强模型，具体是怎样比较的？** 论文展示 Llama-3-8B-Instruct 等单次表现弱于 GPT-4o 的模型，增加采样后，在多个数学、代码和形式化证明任务上的 **coverage** 超过 GPT-4o 的**单次成绩**。SWE-bench Lite 的例子更具体：DeepSeek-Coder-V2-Instruct 单次解决率为 15.9%，250 次采样的 coverage 达 56%，超过当时 43% 的单次 state of the art（SOTA）基线。模型可能更小、也可能在单次能力上落后；关键并非「小模型每次回答都更聪明」，而是把较弱但非零的单次成功概率，放大为多次尝试至少成功一次的概率。这里的 56% 仍要结合测试能否可靠识别有效补丁理解。[02:01](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=121s) [03:36](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=216s) [*Large Language Monkeys* 论文 §2](https://arxiv.org/html/2407.21787v3)
+
+在固定模型、固定题目和可独立重采样的前提下，增加 `k` 不会降低「候选中至少一个正确」的概率；这正是「生成的量越大，结果越好」成立的**直接含义**。但收益逐渐变小，模型完全解不出的题不会因采样而突然可解，有限预算还要考虑 verifier 和调用成本。因此，不能把这句话直接套到最终交付的单个答案上。[07:33](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=453s) [15:34](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=934s)
+
+```mermaid
+flowchart LR
+    Q["题目"] --> G["生成 k 个 candidate"] --> P["候选集合"]
+    P -.-> M["coverage／pass@k：是否至少一个正确？"]
+    P --> V["verifier／选择器"] --> A["交付一个答案"]
 ```
 
 | 指标 | 问的问题 | 必须注意 |
@@ -40,25 +46,49 @@
 | Formal proof checker | 检查形式化证明的步骤 | 需要可形式化的任务和证明。 |
 | Executable tests | 运行程序或软件补丁的 unit tests | 测试可能缺失、flaky 或误判。 |
 | 输出对照 | 比较生成的 CUDA kernel 与 PyTorch 参考实现 | 有限输入上的相同输出只是测试证据，不能自动证明所有输入等价。 |
-| Model-based judge／reward model | 给候选答案评分、排序 | 评分模型有自己的错误，跨任务泛化也受限制。 |
+| Model-based judge／reward model | 给完整候选或中间步骤评分、排序 | 分数是 learned signal，并非可执行的正确性证明；跨任务泛化也受限制。 |
 
 课堂讨论提出了生成更多测试、用 simulation 筛掉错误候选、组合多个 verifier 等研究方向；这些是**讨论中的设想**，讲座没有证明它们能普遍消除这个 gap。[23:31](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=1411s) [24:49](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=1489s)
 
-## 3. 同一预算下，怎样分配 parallel 与 sequential compute？[26:55](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=1615s)
+## 3. 候选怎样生成、结果怎样评分：两个不同问题 [26:55](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=1615s)
 
-*Scaling LLM Test-Time Compute Optimally* 把两个维度放在一起研究：**parallel sampling** 同时探索多个独立解法；**sequential revision** 则让已有解法继续推演、反思或修改。一个系统也可以先开多条分支，再在每条分支内修订，最后选择输出。讲座指出，此处的顺序修订可通过 prompting 实现；它不等于在当前推理过程中训练了模型参数。[27:20](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=1640s) [28:12](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=1692s)
+这里容易把两种选择混在一起，实际上它们回答不同问题：**parallel sampling 与 sequential revision 是生成／计算预算的分配方式；ORM 与 PRM 是 learned verification／scoring 的粒度。** 可以组合使用，不是一组四选一的方法。[论文 §2–3](https://arxiv.org/html/2408.03314v1)
 
-**Outcome reward model（ORM）**给完整答案一个分数，常用于 `best-of-N`；**process reward model（PRM）**给解题过程中的步骤评分，可在 **beam search** 中保留有希望的部分路径，再扩展下一步。PRM 的「步骤」是有意义的推理片段，并不必然等于每个 token。它也是训练所得的评分模型，可能在训练任务附近更可靠。[28:35](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=1715s) [30:20](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=1820s) [32:19](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=1939s)
+| 选择轴 | 方法 | 作用 |
+| --- | --- | --- |
+| **生成候选／分配预算** | **Parallel sampling**；**sequential revision** | 前者同时探索多个独立解法；后者持续修改已有解法。也可先开多条分支，再逐条修订。 |
+| **评估候选／指导搜索** | **Outcome reward model（ORM）**；**process reward model（PRM）** | ORM 给完整答案评分；PRM 给中间推理步骤评分。两者都是训练出的评分器，而非直接执行程序的 verifier。 |
 
-```text
-parallel：多个独立答案 ─────────────→ ORM／verifier 选择
-sequential：初稿 → 修订 → 再修订 ──→ 最终答案
-search：多个部分步骤 → PRM 评分／剪枝 → 扩展保留路径
+ORM 常用在 `best-of-N`，从大量完整输出中挑分数最高的一个；也能在连续修订得到的多个完整版本中做最终选择。PRM 不必等到生成大量**完整**答案：它可以在 **beam search** 的每一步给部分路径打分、剪枝，再把计算花在较有希望的分支上。PRM 的「步骤」是有意义的推理片段，并不必然等于每个 token。两种模型的分数都有误差，不能当作 oracle verification。[28:35](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=1715s) [30:20](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=1820s) [32:19](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=1939s) [论文 §2–3](https://arxiv.org/html/2408.03314v1)
+
+在**生成策略**这个轴上，*Scaling LLM Test-Time Compute Optimally* 比较不同预算分配：parallel sampling 同时探索多个独立解法；sequential revision 则让已有解法继续推演、反思或修改。讲座指出，此处的顺序修订可通过 prompting 实现；它不等于在当前推理过程中训练了模型参数。[27:20](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=1640s) [28:12](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=1692s)
+
+```mermaid
+flowchart LR
+    Q["题目"] --> P["Parallel sampling：多个独立答案"]
+    Q --> S["Sequential revision：初稿逐轮修订"]
+    Q --> T["Search：扩展部分解法"]
+    P --> V["ORM／外部 verifier：选择完整答案"]
+    S --> V
+    T --> R["PRM：逐步评分、剪枝"]
+    R --> T
+    R --> V
+    V --> A["最终答案"]
 ```
 
 论文按 base model 对各题的 `pass@1` 把题目分难度组，比较相同生成预算下的策略。讲座展示：对较容易的题，更多 sequential compute 往往有效；对最难的一组，最佳 parallel/sequential 比例没有简单、稳定的单一规则。论文的 *compute-optimal* 策略意在按题目与预算选择方法，论文摘要报告相对于 `best-of-N` 的效率提升超过 4 倍；这属于该论文的实验设置，不是所有任务都可复现的固定倍率。[34:40](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=2080s) [37:00](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=2220s) [论文](https://arxiv.org/abs/2408.03314)
 
-讲座还强调：在论文比较中，较小模型配更多 test-time compute 可在**已有非零成功概率**的题上挑战大模型，但最难的题仍更依赖强 base model。这里比较涉及特定 FLOPs／token 预算和题目分布；pre-training 是一次性成本，而 inference 成本随请求重复发生，二者不能直接按「每题花了多少 token」作简单等价换算。[38:02](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=2282s) [39:41](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=2381s)
+### Training-time 与 test-time scaling 能否互换？[37:57](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=2277s)
+
+这是本讲明确讨论的问题。论文做 **FLOPs-matched comparison**：一边预训练参数量约为原来 14 倍的较大模型、用较少 test-time compute；另一边保留较小模型，把相当的计算预算用于 test-time revision 或 search。结果取决于题目难度，以及未来要处理多少 inference 请求：[论文 Figure 9 与 §7](https://arxiv.org/html/2408.03314v1)
+
+| 情况 | 论文和讲座中的倾向 |
+| --- | --- |
+| 容易或中等难度；较小模型已有一定解题概率 | 增加 test-time compute 常比继续扩大预训练更有效。 |
+| 最难的题；现有模型几乎找不到正确解 | 单纯追加采样或修订收益很小，提升 base model 的 pre-training compute 更有效。 |
+| 未来 inference 量很大 | 训练较大模型的一次性成本可在大量请求间分摊；每次请求都多采样的累计成本会增加。 |
+
+因此，「两种 compute 可以互换」是**预算内的经验性 trade-off**，不是一比一的兑换率。论文还指出某些困难题在特定训练／推理负载下仍可能受益于 test-time compute，不能按难度给出无条件规则。讲座中的口头结论更强调：对**最难的问题**，更强的 base model 仍有不可轻易由大量生成弥补的优势。[38:02](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=2282s) [39:22](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=2362s) [论文 §7](https://arxiv.org/html/2408.03314v1)
 
 ## 4. Archon：把推理流程本身作为搜索对象 [45:19](https://www.youtube.com/watch?v=-Ggc37xLj_Y&t=2719s)
 
