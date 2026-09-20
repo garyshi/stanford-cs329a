@@ -3,7 +3,7 @@
 > 课程：Stanford CS329A — Self-Improving AI Agents（2025 年秋季）<br>
 > 主讲：Aakanksha Chowdhery（2025 年 10 月 3 日课堂；Stanford Online 于 2026 年发布视频）<br>
 > [原视频（约 71 分钟）](https://www.youtube.com/watch?v=Lxh9RF5S-K0) · [课程官网与阅读材料](https://cs329a.stanford.edu/)<br>
-> 本文按讲座归纳，不是逐字稿。时间戳依据视频发布者的英文 CC，并以三篇原论文核对机制与指标；未逐帧核查视频画面和音频，字幕不清的课堂发言不作确定转述。
+> 本文按讲座归纳，不是逐字稿。先通读视频发布者的英文 CC，再回看 ReAct action space、WebShop、RLEF framework／solve rate 与 Constitutional AI 两阶段等关键幻灯片，并以三篇原论文核对机制与指标；字幕不清的课堂发言不作确定转述。
 
 ## 一句话主线
 
@@ -15,27 +15,31 @@ Agent 要从行动中变好，首先得明确**反馈来自哪里、反馈能证
 | RLEF | 程序真实执行的测试结果、错误信息 | public tests 指导当前轨迹；private tests 给训练时 reward，PPO 更新参数 | CodeContests，另测 HumanEval+／MBPP+ |
 | Constitutional AI | 模型依据人写 principles 生成 critique／revision 和 AI preference | 先监督微调修订答案，再训练 preference model 并做 RL | helpfulness／harmlessness 的人类偏好评估 |
 
+比较反馈时不能只问“有没有 feedback”。还应检查：**source** 是否接近真实目标、**observability／granularity** 是否足以定位错误、**coverage** 覆盖了哪些行为、以及取得与验证信号的 **cost**。这是本文综合讲座讨论与论文局限采用的分析维度，不是三篇论文共同提出的命名框架。
+
 ## 1. ReAct：把 reasoning 与 acting 接成一个循环 [01:48](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=108s)
 
 单独的 **chain of thought（CoT）** 只在模型已有知识和上下文中推理，可能连贯地编造事实；只执行搜索动作又缺少“下一步应查什么、查到后如何改变计划”的显式中间状态。论文《[ReAct: Synergizing Reasoning and Acting in Language Models](https://arxiv.org/abs/2210.03629)》让模型交错输出 **Thought → Action → Observation**：Thought 是语言中的计划，不改变环境；Action 调用允许的工具；Observation 由外部工具或环境返回，再加入后续上下文。[04:02](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=242s) [07:00](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=420s)
 
 ```mermaid
 flowchart LR
-    G[目标及当前上下文] --> T[Thought：决定缺什么信息]
-    T --> A[Action：搜索／交互／结束]
-    A --> O[Observation：环境返回结果]
+    G["目标及当前上下文"] --> T["Thought：决定缺什么信息"]
+    T --> A["Action：搜索／交互／结束"]
+    A --> O["Observation：环境返回结果"]
     O --> T
-    T --> F[证据足够时作答]
+    T --> F["证据足够时作答"]
 ```
 
 这不是先写完所有思路、再顺序执行所有动作。课堂问答明确说，**每个 observation 都可能改变下一个 thought 与 action**；搜索失败时可以改写查询。工具的 action space 也要由环境限定，例如 Wikipedia 任务的 `Search`、`Lookup`、`Finish`，否则生成任意文本不等于有效调用。[08:01](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=481s) [14:07](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=847s) [17:28](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=1048s)
 
 讲座的 HotpotQA 示例问 Apple Remote 最初控制的软件还能由什么设备控制。ReAct 先搜索 Apple Remote，得到 **Front Row** 这个线索；第一次搜索 Front Row 不充分，便改查 Front Row software，再形成答案。示例的价值是**查询由已有观察决定**，不是说每次搜索结果都可信，也不是说模型天然知道何时该搜索。[09:43](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=583s) [10:57](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=657s) [12:28](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=748s)
 
+**Tool observation 是 evidence，不是 truth**。检索结果可能无关、过时、不完整或互相冲突；工具也可能返回空结果或 timeout，模型还可能误读一条正确 observation。课堂讨论建议对矛盾结果增加 validation／guardrails，并在 noisy feedback 下保留 backtracking、重复检索和 confidence estimation 的能力；这些是设计建议，不是 ReAct 实验已经证明的完整容错方案。[14:49](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=889s) [23:15](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=1395s)
+
 ### 实验读法：grounding 有用，但不是无条件胜出 [17:28](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=1048s)
 
 - **HotpotQA** 是多跳问答，**FEVER（Fact Extraction and VERification）** 是事实核查；二者使用受限的 Wikipedia API。论文与讲座均指出 ReAct 相比 **Act-only** 更好，但纯 prompting 下**并非始终优于 CoT**：HotpotQA 上 CoT 可更强，FEVER 上 ReAct 更有利；用 **self-consistency（SC，多次采样后按答案投票）** 与 ReAct 互作 fallback 则结合了内部知识和外部检索。不能写成“ReAct 在所有问答任务必胜”。[18:01](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=1081s) [18:41](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=1121s) [论文结果](https://arxiv.org/html/2210.03629)
-- **WebShop** 是模拟网页购物环境，不是论文让 Agent 在真实电商网站付款。讲座展示的 WebShop score 中，ReAct 为 `66.6`、human expert 为 `82.1`；score 与最终任务 **success rate** 不能混用。原论文另外报告 ALFWorld 和 WebShop 的 success-rate 改进，分别是相对当时基线的 **34 与 10 个百分点**，不是“模型达到 34%／10%”。[20:27](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=1227s) [21:07](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=1267s) [论文摘要](https://arxiv.org/abs/2210.03629)
+- **WebShop** 是模拟网页购物环境，不是论文让 Agent 在真实电商网站付款。讲座幻灯片同时列出 average score 与最终任务 **success rate（SR）**：ReAct 分别为 `66.6`／`40.0`，human expert 为 `82.1`／`59.6`，两列不能混用。原论文另外报告 ALFWorld 和 WebShop 的 success-rate 改进，分别是相对当时基线的 **34 与 10 个百分点**，不是“模型达到 34%／10%”。[20:27](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=1227s) [21:07](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=1267s) [论文摘要](https://arxiv.org/abs/2210.03629)
 - 轨迹更容易供人查看，不意味着 reasoning trace 必然忠实解释内部计算。错误检索、相互矛盾的来源、多步误差传播、庞大 action space 所需的示例，以及多次调用的 latency／token cost 都仍是限制；讲师把验证冲突来源和 backtracking 作为课堂讨论，而非论文已解决的保证。[19:38](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=1178s) [22:10](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=1330s) [23:15](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=1395s)
 
 **关键区分**：本讲重点演示的是 frozen model 的 few-shot ReAct prompting，成功来自**当前上下文中利用外部 observation**；论文还研究了 fine-tuning，但不能把原始 prompting 的收益说成在线训练后的参数改进。[09:05](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=545s) [20:15](https://www.youtube.com/watch?v=Lxh9RF5S-K0&t=1215s)
@@ -46,12 +50,12 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    P[题目] --> C[生成 Python 解答]
-    C --> U[运行 public tests]
+    P["题目"] --> C["生成 Python 解答"]
+    C --> U["运行 public tests"]
     U -->|失败及错误信息| C
-    U -->|通过或达到轮次上限| H[用 private tests 评估最终解答]
-    H --> R[训练时 reward]
-    R --> PPO[PPO 更新 policy]
+    U -->|通过或达到轮次上限| H["用 private tests 评估最终解答"]
+    H --> R["训练时 reward"]
+    R --> PPO["PPO 更新 policy"]
     PPO --> P
 ```
 
@@ -101,3 +105,6 @@ ReAct 解决“**现在该查什么、观察后如何改下一步**”；RLEF �
 - [ReAct 原论文](https://arxiv.org/abs/2210.03629)：核对任务、对照组、WebShop 与 ALFWorld 结论。
 - [RLEF 原论文](https://arxiv.org/abs/2410.02089)：核对 public/private tests、PPO reward、`n@k` 定义、CodeContests 数字与局限。
 - [Constitutional AI 原论文](https://arxiv.org/abs/2212.08073)：核对 supervised/RLAIF 两阶段、原则来源与人类评估口径。
+- [CS329A Study Companion](https://github.com/onehr/cs329-notes)：作者说明各讲基于完整录像与指定论文，并专门标出讲座和论文的差异；本文用其课程级组织方式检查是否遗漏“反馈进入当前轨迹还是未来参数”这一主线。网页端未能直接载入其第 4 讲正文，因此没有把未读到的具体表述、数字或图表当作已核实内容。
+- [My Learning Wiki：Part 4 teaching companion](https://weihaoqu.github.io/learnAIDoc/wiki/cs329a-part-04-learning-feedback-tools-code/)：该文声明基于完整 `1:11:13` 视频、28 个画面线索与三篇指定论文；用于发现 tool observation 的来源／覆盖／腐化风险和 public/private test 可见性等检查角度。本文采用的具体事实均重新对照视频幻灯片或原论文；其 “feedback contract” 是作者的 teaching synthesis，不归于讲师或论文作者。
+- [AI Course Notes：第 4 讲](https://hqhq1025.github.io/ai-course-notes/cs329a/lecture04/)：用于交叉检查章节覆盖和关键幻灯片区间，尤其是 ReAct、RLEF framework 与 Constitutional AI 两阶段；其中的延伸公式和工程建议没有在缺少一手材料支持时写入正文。检索时未找到 Sparse Notes 对本讲的完整专文，因而没有用搜索摘要替代完整笔记。
