@@ -15,7 +15,7 @@
 - **Zero-shot 与 few-shot learning**：[05:39](https://www.youtube.com/watch?v=6YnLB0XbTnI&t=339s) zero-shot 只提供任务说明，few-shot 额外提供几个输入输出示例。两者都不需要针对这个任务重新训练模型参数。
 - **Chain of thought（CoT，思维链）**：[07:03](https://www.youtube.com/watch?v=6YnLB0XbTnI&t=423s) 在示例中加入中间推理步骤，可能帮助模型解决新问题。讲座的网球题是 `5 + 2 × 3 = 11`：给出“原有 5 个，两罐各 3 个”这样的步骤，比只给答案更能说明如何解同类题。讲座也指出，所展示的较小模型不一定能从 CoT prompting 中受益。这里的 **emergent behavior（涌现能力）**描述的是特定实验现象，不应理解为存在通用的参数门槛。
 
-![课程幻灯片：standard prompting 与 CoT prompting 的输入输出对比](https://sparsenotes.com/posts/2026/08/stanford-cs329a-self-improving-ai-agents/chain-of-thought-prompt.jpg)
+![课程幻灯片：standard prompting 与 CoT prompting 的输入输出对比](assets/01-course-overview/chain-of-thought-prompt.jpg)
 
 *读图：左侧示例只给答案，模型把新题算错；右侧示例展示推理步骤，模型据此算出新题答案。它展示的是提示方式的对照，不能单凭这一题推断所有模型、所有任务的收益。截图由 [Sparse Notes](https://sparsenotes.com/posts/2026/08/stanford-cs329a-self-improving-ai-agents/) 收录。*
 
@@ -40,7 +40,7 @@
 
 实验把每题采样数从 1 提升到最多 10,000，并统计“是否至少产生过一个正确答案”；有些题在 10,000 个 candidate 里只有 3–4 个正确。这让**可靠的 verifier** 与**足够多样的 candidate** 同样重要。讲座中小模型超过 GPT-4o 单次回答的比较，针对的是这些 benchmark（基准测试）中的 coverage，不能直接解释为小模型任意一次回答都更好。[22:23](https://www.youtube.com/watch?v=6YnLB0XbTnI&t=1343s) [24:00](https://www.youtube.com/watch?v=6YnLB0XbTnI&t=1440s)
 
-![课程幻灯片：Large Language Monkeys 的 repeated sampling 与 coverage 曲线](https://sparsenotes.com/posts/2026/08/stanford-cs329a-self-improving-ai-agents/large-language-monkeys-coverage.jpg)
+![课程幻灯片：Large Language Monkeys 的 repeated sampling 与 coverage 曲线](assets/01-course-overview/large-language-monkeys-coverage.jpg)
 
 *读图：横轴是每题采样次数 `k`（log scale），纵轴是 coverage／pass@k；红色虚线是 GPT-4o single attempt 的 baseline。图中不同 benchmark 的曲线不能混为一个整体成绩；部分图使用 oracle verifier，且截图注明因计算成本只在随机子集上生成结果。来源：[讲座截图](https://sparsenotes.com/posts/2026/08/stanford-cs329a-self-improving-ai-agents/)。*
 
@@ -66,7 +66,7 @@ Reasoning model 还会进行 problem analysis、task decomposition、尝试方�
 | 预先设计的 agentic workflow | 人设计步骤与分支，模型在各节点执行任务 | prompt chaining、routing、parallelization 与 aggregation |
 | 更开放的 Agent loop | 模型依据 environment feedback 动态决定下一步 | coding agent 搜索仓库、修改文件、运行测试、再修改 |
 
-![课程幻灯片：generator–evaluator loop 与 parallelization-aggregation workflow](https://sparsenotes.com/posts/2026/08/stanford-cs329a-self-improving-ai-agents/agentic-workflow-patterns.jpg)
+![课程幻灯片：generator–evaluator loop 与 parallelization-aggregation workflow](assets/01-course-overview/agentic-workflow-patterns.jpg)
 
 *读图：上图是 generator 提出候选、evaluator 接受或退回并给 feedback；下图是多个 LLM calls 并行完成子任务，再由 aggregator 合并。两者都是**预先编排的 agentic workflow**，不等同于模型能在任意环境里自主完成开放任务。截图由 [Sparse Notes](https://sparsenotes.com/posts/2026/08/stanford-cs329a-self-improving-ai-agents/) 收录。*
 
